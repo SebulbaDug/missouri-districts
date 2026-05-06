@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <style>
+    body { margin: 0; font-family: Arial; }
+
+    #map {
+      height: 100vh;
+      width: 70%;
+      float: left;
+    }
+
+    #panel {
+      width: 30%;
+      height: 100vh;
+      float: right;
+      background: #f7f7f7;
+      padding: 15px;
+      overflow-y: auto;
+      box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+    }
+
+    .search-box {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      background: white;
+      padding: 10px;
+      border-radius: 8px;
+    }
+
+    h3 { margin-top: 0; }
+  </style>
+</head>
+<body>
+
+<div class="search-box">
+  <input id="address" placeholder="Enter address"/>
+  <button onclick="search()">Search</button>
+</div>
+
+<div id="map"></div>
+
+<div id="panel">
+  <h3>Find Your Representatives</h3>
+  <p>Search an address to begin.</p>
+</div>
+
+<script>
+let map = L.map('map', {
+  zoomAnimation: true,
+  preferCanvas: true
+}).setView([38.5, -92.5], 7);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19
+}).addTo(map);
+
+let marker;
+
+async function search() {
+  const address = document.getElementById('address').value;
+
+  const geo = await fetch(
+    `https://nominatim.openstreetmap.org/search?format=json&q=${address}`
+  ).then(r => r.json());
+
+  if (!geo.length) return;
+
+  const lat = parseFloat(geo[0].lat);
+  const lon = parseFloat(geo[0].lon);
+
+  if (marker) map.removeLayer(marker);
+  marker = L.marker([lat, lon]).addTo(map);
+
+  map.setView([lat, lon], 12);
+
+  getDistricts(lat, lon);
+}
+
+async function queryLayer(layerId, lat, lon) {
+  const url = `https://gis.mo.gov/arcgis/rest/services/LEGIS/legisDistrict/FeatureServer/${layerId}/query`;
+
+  const params = new URLSearchParams({
+    f: "json",
+    geometry: `${lon},${lat}`,
+    geometryType: "esriGeometryPoint",
+    inSR: "4326",
+    spatialRel: "esriSpatialRelIntersects",
+    outFields: "*",
+    returnGeometry: false
+  });
+
+  const res = await fetch(url + "?" + params);
+  return res.json();
+}
+
+async function getDistricts(lat, lon) {
+  const [cong, house, senate] = await Promise.all([
+    queryLayer(0, lat, lon),
+    queryLayer(1, lat, lon),
+    queryLayer(2, lat, lon)
+  ]);
+
+  displayResults(cong, house, senate);
+}
+
+function displayResults(cong, house, senate) {
+  const panel = document.getElementById("panel");
+
+  const c = cong.features[0]?.attributes;
+  const h = house.features[0]?.attributes;
+  const s = senate.features[0]?.attributes;
+
+  panel.innerHTML = `
+    <h3>Your Representatives</h3>
+
+    <p><b>US House:</b><br>
+    District ${c?.District_Number || "N/A"}<br>
+    ${c?.Name || "Unknown"}</p>
+
+    <p><b>State House:</b><br>
+    District ${h?.District_Number || "N/A"}<br>
+    ${h?.Name || "Unknown"}</p>
+
+    <p><b>State Senate:</b><br>
+    District ${s?.District_Number || "N/A"}<br>
+    ${s?.Name || "Unknown"}</p>
+  `;
+}
+</script>
+
+</body>
+</html>
